@@ -15,8 +15,3 @@ and secure **IV randomization** using `/dev/urandom`.
 - ✅ Random IV generation from `/dev/urandom`
 - ✅ Works entirely in-memory (no external dependencies)
 - ✅ Clean, readable, and modular C code
-
----
-
-## 📂 File Structure
-
