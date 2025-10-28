@@ -233,14 +233,17 @@ void AES_Encrypt_CBC(const uint8_t *ekey, uint8_t *iv, uint8_t *buf, size_t len)
 void AES_Decrypt_CBC(const uint8_t *ekey, uint8_t *iv, uint8_t *buf, size_t len) {
     uint8_t prev[16];
     uint8_t tmp[16];
+    uint8_t ctmp[16];
     memcpy(prev, iv, 16);
     for (size_t offset = 0; offset < len; offset += 16) {
+        memcpy(ctmp, &buf[offset], 16);
         memcpy(tmp, &buf[offset], 16);
         AES_Decrypt(ekey, tmp);
         xor16(&buf[offset], tmp, prev);
-        memcpy(prev, &buf[offset], 16);
+        memcpy(prev, ctmp, 16);
     }
 }
+
 int get_random_bytes(uint8_t *buf, size_t len) {
     int fd = open("/dev/urandom", O_RDONLY);
     if (fd < 0) return -1;
@@ -248,12 +251,6 @@ int get_random_bytes(uint8_t *buf, size_t len) {
     close(fd);
     if (r != (ssize_t)len) return -1;
     return 0;
-}
-
-void print_hex(const char *label, const uint8_t *buf, size_t len) {
-    printf("%s (%zu): ", label, len);
-    for (size_t i = 0; i < len; i++) printf("%02x", buf[i]);
-    printf("\n");
 }
 
 ssize_t aes128_cbc_encrypt_with_iv(const uint8_t *key, const uint8_t *in, size_t in_len, uint8_t *out, size_t out_size) {
@@ -291,4 +288,73 @@ ssize_t aes128_cbc_decrypt_with_iv(const uint8_t *key, uint8_t *inout, size_t in
 
     memmove(inout, ct, plain_len);
     return (ssize_t)plain_len;
+}
+
+static int hex_to_bytes(const char *hex, uint8_t *out, size_t out_len) {
+    size_t hex_len = strlen(hex);
+    if (hex_len != out_len * 2) return -1;
+    
+    for (size_t i = 0; i < out_len; i++) {
+        int hi, lo;
+        char c = hex[i*2];
+        
+        if (c >= '0' && c <= '9') hi = c - '0';
+        else if (c >= 'a' && c <= 'f') hi = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') hi = c - 'A' + 10;
+        else return -1;
+        
+        c = hex[i*2 + 1];
+        if (c >= '0' && c <= '9') lo = c - '0';
+        else if (c >= 'a' && c <= 'f') lo = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') lo = c - 'A' + 10;
+        else return -1;
+        
+        out[i] = (hi << 4) | lo;
+    }
+    return 0;
+}
+
+char *aes_decrypt_string(const uint8_t *key, const char *ciphertext_hex) {
+    size_t hex_len = strlen(ciphertext_hex);
+    if (hex_len % 2 != 0 || hex_len < 32) {
+        return NULL;
+    }
+
+    size_t data_len = hex_len / 2;
+    uint8_t *data = malloc(data_len);
+    if (!data) {
+        return NULL;
+    }
+
+    if (hex_to_bytes(ciphertext_hex, data, data_len) != 0) {
+        free(data);
+        return NULL;
+    }
+
+    ssize_t result = aes128_cbc_decrypt_with_iv(key, data, data_len);
+    if (result < 0) {
+        free(data);
+        return NULL;
+    }
+
+    char *plaintext = malloc(result + 1);
+    if (!plaintext) {
+        free(data);
+        return NULL;
+    }
+    
+    memcpy(plaintext, data, result);
+    plaintext[result] = '\0';
+    
+    free(data);
+    return plaintext;
+}
+
+char *aes_decrypt_hex_string(const char *key_hex, const char *ciphertext_hex) {
+    uint8_t key[16];
+    if (hex_to_bytes(key_hex, key, 16) != 0) {
+        return NULL;
+    }
+    char *result = aes_decrypt_string(key, ciphertext_hex);
+    return result;
 }
